@@ -19,7 +19,6 @@ const firebaseConfig = {
   appId: "1:890035221883:web:2162e41259129b1c86b9de",
   measurementId: "G-SSL5RRN78T"
 };
-
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
@@ -128,8 +127,22 @@ document.getElementById("joinBtn").onclick = () => {
     alert("Enter a room code — agree on any word/number with your partner and both type the same one.");
     return;
   }
+  // Immediate feedback so it's obvious the click registered, even before
+  // Firebase responds.
+  document.getElementById("roomStatus").textContent = `Connecting to room "${code}"...`;
+  document.getElementById("joinBtn").disabled = true;
+  document.getElementById("roomCode").disabled = true;
   joinRoom(code);
 };
+
+function connectionFailed(err) {
+  document.getElementById("roomStatus").textContent =
+    "Couldn't connect — " + (err && err.message ? err.message : "unknown error") +
+    ". Check your Firebase rules, then try again.";
+  document.getElementById("joinBtn").disabled = false;
+  document.getElementById("roomCode").disabled = false;
+  connected = false;
+}
 
 document.getElementById("newDrawingBtn").onclick = () => {
   if (!connected) {
@@ -180,7 +193,7 @@ function joinRoom(code) {
   roomRef.child("sides").on("value", snap => {
     remoteSides = snap.val() || {};
     updateSideButtons();
-  });
+  }, connectionFailed);
 
   // Replays every past stroke/fill/erase in order, then keeps streaming
   // new ones live. We log everything (even our own) so erasing can find
@@ -195,7 +208,7 @@ function joinRoom(code) {
     } else {
       applyLoggedEntry(data);
     }
-  });
+  }, connectionFailed);
 
   // When a stroke gets erased (by either of you), rebuild the picture
   // from what's left so both screens match.
@@ -218,12 +231,14 @@ function joinRoom(code) {
       presenceRef.set(true);
       presenceRef.onDisconnect().remove();
     }
-  });
+  }, connectionFailed);
   roomRef.child("presence").on("value", snap => {
+    document.getElementById("joinBtn").disabled = false;
+    document.getElementById("roomCode").disabled = false;
     const count = snap.exists() ? Object.keys(snap.val()).length : 0;
     document.getElementById("roomStatus").textContent =
       `Room "${roomId}" — ${count} ${count === 1 ? "person" : "people"} online`;
-  });
+  }, connectionFailed);
 }
 
 // ============================
