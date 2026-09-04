@@ -47,3 +47,19 @@ canvas {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+.done-panel {
+  margin: 10px auto;
+  padding: 8px;
+  max-width: 480px;
+}
+
+#doneStatus {
+  font-weight: bold;
+  margin: 6px 0 0 0;
+}
+
+#exportBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

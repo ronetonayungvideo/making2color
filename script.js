@@ -10,14 +10,10 @@
 // each need your own Firebase project, only whoever hosts the site does.
 // ==========================================================
 const firebaseConfig = {
-  apiKey: "AIzaSyAMF7y0oabk3QPzCiwQA1KgWMaTvjl-bs4",
-  authDomain: "making2color.firebaseapp.com",
-  databaseURL: "https://making2color-default-rtdb.firebaseio.com",
-  projectId: "making2color",
-  storageBucket: "making2color.firebasestorage.app",
-  messagingSenderId: "890035221883",
-  appId: "1:890035221883:web:2162e41259129b1c86b9de",
-  measurementId: "G-SSL5RRN78T"
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  databaseURL: "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
+  projectId: "YOUR_PROJECT",
 };
 
 firebase.initializeApp(firebaseConfig);
@@ -53,28 +49,68 @@ let lastY = null;
 
 let uploadedImg = null;
 
+// A hidden reference canvas holding just the original photo + pink
+// background, untouched by any strokes. The standard eraser "restores"
+// pixels from here. Recomputed whenever the image changes.
+const baseCanvas = document.createElement("canvas");
+baseCanvas.width = CANVAS_W;
+baseCanvas.height = CANVAS_H;
+const baseCtx = baseCanvas.getContext("2d");
+
+// Every stroke/bucket/erase currently in the room, keyed by its Firebase
+// key. Used to redraw the picture from scratch (needed when a stroke is
+// erased) and to hit-test which stroke the "stroke eraser" clicked on.
+let strokeLog = {};
+let currentStrokeId = null;
+
+// "I'm done" / reveal state
+let doneStatus = {};
+let revealed = false;
+
 // ============================
 // Initialize Canvas
 // ============================
-function initCanvas() {
-  canvas.width = CANVAS_W;
-  canvas.height = CANVAS_H;
+function drawBaseLayer(targetCtx) {
+  targetCtx.fillStyle = "#ffc0cb";
+  targetCtx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-  // Clear background pink
-  ctx.fillStyle = "#ffc0cb";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  // Draw uploaded image, scaled to fit the fixed canvas
   if (uploadedImg) {
     const scale = Math.min(CANVAS_W / uploadedImg.width, CANVAS_H / uploadedImg.height);
     const w = uploadedImg.width * scale;
     const h = uploadedImg.height * scale;
     const ox = (CANVAS_W - w) / 2;
     const oy = (CANVAS_H - h) / 2;
-    ctx.drawImage(uploadedImg, ox, oy, w, h);
+    targetCtx.drawImage(uploadedImg, ox, oy, w, h);
   }
+}
 
-  hideOtherSide();
+function initCanvas() {
+  canvas.width = CANVAS_W;
+  canvas.height = CANVAS_H;
+
+  drawBaseLayer(ctx);
+  drawBaseLayer(baseCtx);
+
+  if (!revealed) hideOtherSide();
+}
+
+// Redraws the whole picture from the base layer + everything in strokeLog,
+// in order. Needed after a stroke is erased, since you can't "un-paint"
+// a specific line from a flattened canvas any other way.
+function rebuildCanvas() {
+  drawBaseLayer(ctx);
+  Object.keys(strokeLog).sort().forEach(key => applyLoggedEntry(strokeLog[key]));
+  if (!revealed) hideOtherSide();
+}
+
+function applyLoggedEntry(data) {
+  if (data.type === "line") {
+    paintLine(data.x0, data.y0, data.x1, data.y1, data.color, data.size, {});
+  } else if (data.type === "bucket") {
+    doBucketFill(data.x, data.y, data.color, false);
+  } else if (data.type === "erase") {
+    eraseLineOnly(data.x0, data.y0, data.x1, data.y1, data.size);
+  }
 }
 
 initCanvas();
@@ -103,7 +139,13 @@ document.getElementById("newDrawingBtn").onclick = () => {
     remoteSides = {};
     undoStack = [];
     redoStack = [];
+    strokeLog = {};
+    doneStatus = {};
+    revealed = false;
+    localStorage.removeItem("m2c_side_" + roomId);
     document.getElementById("sideText").textContent = "No side chosen";
+    document.getElementById("doneStatus").textContent = "";
+    document.getElementById("exportBtn").disabled = true;
     updateSideButtons();
     initCanvas();
   });
@@ -113,6 +155,17 @@ function joinRoom(code) {
   roomId = code;
   roomRef = db.ref("rooms/" + roomId);
   connected = true;
+  strokeLog = {};
+
+  // Restore your side pick for this room if you had one before refreshing —
+  // this is the fix for "I can't pick my side back after reloading".
+  const savedSide = localStorage.getItem("m2c_side_" + roomId);
+  if (savedSide) {
+    side = savedSide;
+    sideText.textContent = `You have picked ${side} side (restored)`;
+    roomRef.child("sides/" + side).set(true);
+    if (!revealed) hideOtherSide();
+  }
 
   // Load existing image (if partner already uploaded one)
   roomRef.child("image").once("value", snap => {
@@ -125,11 +178,33 @@ function joinRoom(code) {
     updateSideButtons();
   });
 
-  // Replays every past stroke in order, then keeps streaming new ones live
+  // Replays every past stroke/fill/erase in order, then keeps streaming
+  // new ones live. We log everything (even our own) so erasing can find
+  // and remove specific strokes later.
   roomRef.child("strokes").on("child_added", snap => {
     const data = snap.val();
-    if (!data || data.clientId === CLIENT_ID) return; // it's our own, already drawn
-    applyRemoteStroke(data);
+    if (!data) return;
+    strokeLog[snap.key] = data;
+    if (data.clientId === CLIENT_ID) return; // it's our own, already drawn locally
+    if (data.type === "snapshot") {
+      applySnapshotLocal(data.data);
+    } else {
+      applyLoggedEntry(data);
+    }
+  });
+
+  // When a stroke gets erased (by either of you), rebuild the picture
+  // from what's left so both screens match.
+  roomRef.child("strokes").on("child_removed", snap => {
+    delete strokeLog[snap.key];
+    rebuildCanvas();
+  });
+
+  // "I'm done" tracking — reveals the full picture once both sides
+  // have marked themselves finished, even if one of you joins late.
+  roomRef.child("done").on("value", snap => {
+    doneStatus = snap.val() || {};
+    updateDoneStatus();
   });
 
   // Presence — lets you see if your partner is actually online right now
@@ -210,11 +285,16 @@ function pickSide(s) {
   side = s;
   sideText.textContent = `You have picked ${s} side`;
   roomRef.child("sides/" + s).set(true);
-  hideOtherSide();
+  localStorage.setItem("m2c_side_" + roomId, s);
+  if (!revealed) hideOtherSide();
 }
 
 function resetSide() {
-  if (side && roomRef) roomRef.child("sides/" + side).remove();
+  if (side && roomRef) {
+    roomRef.child("sides/" + side).remove();
+    roomRef.child("done/" + side).remove();
+  }
+  if (roomId) localStorage.removeItem("m2c_side_" + roomId);
   side = null;
   sideText.textContent = "No side chosen";
 }
@@ -250,6 +330,10 @@ function getCursorPos(e) {
 // ============================
 // Drawing
 // ============================
+function outOfMySide(x) {
+  return (side === "left" && x > canvas.width / 2) || (side === "right" && x < canvas.width / 2);
+}
+
 function startDrawing(e) {
   if (!side || !connected) return;
   drawing = true;
@@ -259,16 +343,31 @@ function startDrawing(e) {
   lastY = pos.y;
 
   if (tool === "bucket") {
-    if (side === "left" && pos.x > canvas.width / 2) return;
-    if (side === "right" && pos.x < canvas.width / 2) return;
+    if (outOfMySide(pos.x)) return;
     doBucketFill(pos.x, pos.y, color, true);
+  } else if (tool === "brush" || tool === "eraser") {
+    // Group every segment drawn during this one drag under one id, so the
+    // stroke eraser can later delete the whole line in one touch.
+    currentStrokeId = CLIENT_ID + "_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6);
+  } else if (tool === "strokeEraser") {
+    tryEraseStrokeAt(pos.x, pos.y);
   }
 }
 
 function handleDrawing(e) {
-  if (!drawing || !side || tool !== "brush") return;
+  if (!drawing || !side) return;
   const pos = getCursorPos(e);
-  paintLine(lastX, lastY, pos.x, pos.y, color, brushSize, { broadcast: true, enforceLimit: true });
+
+  if (tool === "brush") {
+    paintLine(lastX, lastY, pos.x, pos.y, color, brushSize, {
+      broadcast: true, enforceLimit: true, strokeId: currentStrokeId
+    });
+  } else if (tool === "eraser") {
+    eraseAndBroadcast(lastX, lastY, pos.x, pos.y, brushSize);
+  } else if (tool === "strokeEraser") {
+    tryEraseStrokeAt(pos.x, pos.y);
+  }
+
   lastX = pos.x;
   lastY = pos.y;
 }
@@ -295,12 +394,9 @@ canvas.addEventListener("touchcancel", stopDrawing);
 // Paint a line segment (used for both local drawing and remote strokes)
 // ============================
 function paintLine(x0, y0, x1, y1, strokeColor, size, opts = {}) {
-  const { broadcast = false, enforceLimit = false } = opts;
+  const { broadcast = false, enforceLimit = false, strokeId = null } = opts;
 
-  if (enforceLimit) {
-    if (side === "left" && x1 > canvas.width / 2) return;
-    if (side === "right" && x1 < canvas.width / 2) return;
-  }
+  if (enforceLimit && outOfMySide(x1)) return;
 
   ctx.strokeStyle = strokeColor;
   ctx.lineWidth = size;
@@ -316,6 +412,7 @@ function paintLine(x0, y0, x1, y1, strokeColor, size, opts = {}) {
       x0, y0, x1, y1,
       color: strokeColor,
       size,
+      strokeId,
       clientId: CLIENT_ID,
       ts: firebase.database.ServerValue.TIMESTAMP
     });
@@ -372,16 +469,98 @@ function hexToRGB(hex) {
 }
 
 // ============================
-// Apply a stroke that came from the partner
+// Standard Eraser — restores original photo/background pixels
 // ============================
-function applyRemoteStroke(data) {
-  if (data.type === "line") {
-    paintLine(data.x0, data.y0, data.x1, data.y1, data.color, data.size, { broadcast: false, enforceLimit: false });
-  } else if (data.type === "bucket") {
-    doBucketFill(data.x, data.y, data.color, false);
-  } else if (data.type === "snapshot") {
-    applySnapshotLocal(data.data);
+function eraseLineOnly(x0, y0, x1, y1, size) {
+  const steps = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / Math.max(2, size / 4)));
+  for (let i = 0; i <= steps; i++) {
+    const px = x0 + ((x1 - x0) * i) / steps;
+    const py = y0 + ((y1 - y0) * i) / steps;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(px, py, size / 2, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(baseCanvas, 0, 0);
+    ctx.restore();
   }
+}
+
+function eraseAndBroadcast(x0, y0, x1, y1, size) {
+  if (outOfMySide(x1)) return;
+  eraseLineOnly(x0, y0, x1, y1, size);
+  if (connected) {
+    roomRef.child("strokes").push({
+      type: "erase",
+      x0, y0, x1, y1, size,
+      clientId: CLIENT_ID,
+      ts: firebase.database.ServerValue.TIMESTAMP
+    });
+  }
+}
+
+// ============================
+// Stroke Eraser — removes an entire brushed line in one touch, for both of you
+// ============================
+function pointToSegmentDist(px, py, x0, y0, x1, y1) {
+  const dx = x1 - x0, dy = y1 - y0;
+  const lenSq = dx * dx + dy * dy;
+  let t = lenSq === 0 ? 0 : ((px - x0) * dx + (py - y0) * dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (x0 + t * dx), py - (y0 + t * dy));
+}
+
+function tryEraseStrokeAt(x, y) {
+  if (outOfMySide(x)) return;
+
+  let hitStrokeId = null;
+  for (const key of Object.keys(strokeLog)) {
+    const d = strokeLog[key];
+    if (d.type !== "line" || !d.strokeId) continue;
+    if (pointToSegmentDist(x, y, d.x0, d.y0, d.x1, d.y1) <= d.size / 2 + 6) {
+      hitStrokeId = d.strokeId;
+      break;
+    }
+  }
+  if (!hitStrokeId) return;
+
+  Object.keys(strokeLog)
+    .filter(k => strokeLog[k].strokeId === hitStrokeId)
+    .forEach(k => {
+      delete strokeLog[k];
+      if (connected) roomRef.child("strokes/" + k).remove();
+    });
+
+  rebuildCanvas();
+}
+
+// ============================
+// "I'm Done" / Reveal
+// ============================
+document.getElementById("doneBtn").onclick = () => {
+  if (!side) { alert("Pick a side first."); return; }
+  if (!connected) { alert("Join a room first."); return; }
+  roomRef.child("done/" + side).set(true);
+};
+
+function updateDoneStatus() {
+  const statusEl = document.getElementById("doneStatus");
+  const leftDone = !!doneStatus.left;
+  const rightDone = !!doneStatus.right;
+
+  if (leftDone && rightDone) {
+    if (!revealed) revealDrawing();
+    statusEl.textContent = "Both of you are done! The full picture is revealed \u2014 you can export now.";
+  } else if (leftDone || rightDone) {
+    statusEl.textContent = `${leftDone ? "Left" : "Right"} side is done — waiting for the other side...`;
+  } else {
+    statusEl.textContent = "";
+  }
+}
+
+function revealDrawing() {
+  revealed = true;
+  rebuildCanvas();
+  document.getElementById("exportBtn").disabled = false;
 }
 
 // ============================

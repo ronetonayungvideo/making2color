@@ -31,6 +31,8 @@
   <select onchange="tool=this.value">
     <option value="brush">Brush</option>
     <option value="bucket">Bucket</option>
+    <option value="eraser">Eraser</option>
+    <option value="strokeEraser">Stroke Eraser</option>
   </select>
 
   Color
@@ -46,7 +48,12 @@
 
   <button onclick="undo()">Undo</button>
   <button onclick="redo()">Redo</button>
-  <button onclick="exportImage()">Export</button>
+  <button id="exportBtn" onclick="exportImage()" disabled>Export</button>
+</div>
+
+<div class="done-panel">
+  <button id="doneBtn">I'm Done</button>
+  <p id="doneStatus"></p>
 </div>
 
 <br>
