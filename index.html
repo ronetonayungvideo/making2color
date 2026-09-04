@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Couple Coloring Game</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<h2>Couple Coloring Game</h2>
+
+<div class="room-panel">
+  <input type="text" id="roomCode" placeholder="Room code (agree on one together, e.g. 'us2026')">
+  <button id="joinBtn">Join Room</button>
+  <button id="newDrawingBtn">Start New Picture</button>
+  <p id="roomStatus">Not connected — enter a room code and press Join</p>
+</div>
+
+<input type="file" id="upload">
+
+<br><br>
+
+<button id="leftBtn">Left Side</button>
+<button id="rightBtn">Right Side</button>
+<button id="resetSide">Reset Side</button>
+
+<p id="sideText">No side chosen</p>
+
+<div class="toolbar">
+  Tool
+  <select onchange="tool=this.value">
+    <option value="brush">Brush</option>
+    <option value="bucket">Bucket</option>
+  </select>
+
+  Color
+  <input type="color" onchange="color=this.value">
+
+  Brush
+  <select onchange="brushSize=parseInt(this.value)">
+    <option value="2">Tiny</option>
+    <option value="4">Small</option>
+    <option value="8">Medium</option>
+    <option value="16">Large</option>
+  </select>
+
+  <button onclick="undo()">Undo</button>
+  <button onclick="redo()">Redo</button>
+  <button onclick="exportImage()">Export</button>
+</div>
+
+<br>
+
+<canvas id="canvas"></canvas>
+
+<!-- Firebase (free realtime sync — no server needed from you) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
+<script src="script.js"></script>
+</body>
+</html>

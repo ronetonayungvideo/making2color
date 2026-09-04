@@ -1,0 +1,49 @@
+body {
+  text-align: center;
+  font-family: sans-serif;
+  background: #ffc0cb; /* creative pink background */
+}
+
+canvas {
+  border: 2px solid black;
+  touch-action: none;
+  max-width: 95vw;   /* scales to fit any screen size */
+  height: auto;      /* the actual drawing resolution is fixed in JS,
+                         this just controls how big it LOOKS */
+}
+
+.toolbar {
+  margin: 10px;
+  padding: 10px;
+  background: #ddd;
+  border-radius: 8px;
+}
+
+.room-panel {
+  margin: 10px auto;
+  padding: 10px;
+  background: #ffe0ea;
+  border: 1px solid #d88;
+  border-radius: 8px;
+  max-width: 480px;
+}
+
+.room-panel input[type="text"] {
+  padding: 6px;
+  width: 45%;
+}
+
+#sideText {
+  font-weight: bold;
+  margin: 10px 0;
+}
+
+#roomStatus {
+  font-size: 0.9em;
+  margin: 6px 0 0 0;
+}
+
+#leftBtn:disabled, #rightBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
