@@ -10,10 +10,14 @@
 // each need your own Firebase project, only whoever hosts the site does.
 // ==========================================================
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT.firebaseapp.com",
-  databaseURL: "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
-  projectId: "YOUR_PROJECT",
+  apiKey: "AIzaSyAMF7y0oabk3QPzCiwQA1KgWMaTvjl-bs4",
+  authDomain: "making2color.firebaseapp.com",
+  databaseURL: "https://making2color-default-rtdb.firebaseio.com",
+  projectId: "making2color",
+  storageBucket: "making2color.firebasestorage.app",
+  messagingSenderId: "890035221883",
+  appId: "1:890035221883:web:2162e41259129b1c86b9de",
+  measurementId: "G-SSL5RRN78T"
 };
 
 firebase.initializeApp(firebaseConfig);
